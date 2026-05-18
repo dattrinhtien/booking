@@ -29,7 +29,7 @@ import {
 } from '@/components/ui/select'
 import { Popover, PopoverContent, PopoverTrigger } from '@/components/ui/popover'
 import { Calendar } from '@/components/ui/calendar'
-import { CalendarIcon, Camera, Upload, Trash2, Image as ImageIcon, Loader2 } from 'lucide-react'
+import { CalendarIcon, Camera, Upload, Trash2, Loader2 } from 'lucide-react'
 import { cn } from '@/lib/utils'
 
 interface BookingFormProps {
@@ -42,6 +42,7 @@ export function BookingForm({ initialDate, bookingId, onSuccess }: BookingFormPr
   const [isLoading, setIsLoading] = useState(false)
   const [isUploading, setIsUploading] = useState(false)
   const [photoPreview, setPhotoPreview] = useState<string | null>(null)
+  const [apartmentsList, setApartmentsList] = useState<any[]>([])
   
   // Camera state
   const [showCamera, setShowCamera] = useState(false)
@@ -50,9 +51,6 @@ export function BookingForm({ initialDate, bookingId, onSuccess }: BookingFormPr
   const fileInputRef = useRef<HTMLInputElement>(null)
 
   const supabase = createClient()
-  
-  // TODO: Fetch real apartments
-  const mockApartmentId = "00000000-0000-0000-0000-000000000000"
 
   const form = useForm<BookingFormValues>({
     resolver: zodResolver(bookingSchema),
@@ -65,18 +63,87 @@ export function BookingForm({ initialDate, bookingId, onSuccess }: BookingFormPr
       price_per_night: 1000000,
       status: BOOKING_STATUS.HOLDING,
       notes: '',
-      apartment_id: mockApartmentId,
+      apartment_id: '',
       id_card_url: '',
     },
   })
 
-  // Set initial photo preview if exists
-  const idCardUrl = form.watch('id_card_url')
+  // 1. Fetch apartments and set default
   useEffect(() => {
-    if (idCardUrl) {
-      setPhotoPreview(idCardUrl)
+    const fetchApartments = async () => {
+      try {
+        const { data, error } = await supabase.from('apartments').select('*')
+        if (!error && data && data.length > 0) {
+          setApartmentsList(data)
+          if (!bookingId) {
+            form.setValue('apartment_id', data[0].id)
+          }
+        } else {
+          // If no apartments exist, auto-create a default one
+          const { data: newApartment, error: createError } = await supabase
+            .from('apartments')
+            .insert({
+              name: 'Căn hộ Mẫu 01',
+              address: '123 Đường Bao Biển, Hạ Long',
+              max_guests: 4,
+              base_price: 1000000
+            })
+            .select()
+            .single()
+          
+          if (!createError && newApartment) {
+            setApartmentsList([newApartment])
+            if (!bookingId) {
+              form.setValue('apartment_id', newApartment.id)
+            }
+          }
+        }
+      } catch (err) {
+        console.error("Error fetching apartments: ", err)
+      }
     }
-  }, [idCardUrl])
+    fetchApartments()
+  }, [bookingId])
+
+  // 2. Fetch booking details for Edit mode
+  useEffect(() => {
+    if (bookingId) {
+      const fetchBooking = async () => {
+        setIsLoading(true)
+        try {
+          const { data, error } = await supabase
+            .from('bookings')
+            .select('*')
+            .eq('id', bookingId)
+            .single()
+            
+          if (error) throw error
+          if (data) {
+            form.reset({
+              guest_name: data.guest_name,
+              guest_phone: data.guest_phone || '',
+              guest_id_card: data.guest_id_card || '',
+              check_in: new Date(data.check_in),
+              check_out: new Date(data.check_out),
+              price_per_night: Number(data.price_per_night),
+              status: data.status as any,
+              notes: data.notes || '',
+              apartment_id: data.apartment_id,
+              id_card_url: data.id_card_url || '',
+            })
+            if (data.id_card_url) {
+              setPhotoPreview(data.id_card_url)
+            }
+          }
+        } catch (err: any) {
+          toast.error('Lỗi khi tải thông tin booking: ' + err.message)
+        } finally {
+          setIsLoading(false)
+        }
+      }
+      fetchBooking()
+    }
+  }, [bookingId])
 
   // Watch for dates and price to auto-calculate nights and total
   const watchCheckIn = form.watch('check_in')
@@ -93,14 +160,12 @@ export function BookingForm({ initialDate, bookingId, onSuccess }: BookingFormPr
 
     setIsUploading(true)
     try {
-      // 100% Reliable base64 fallback for immediate preview & local database storage
       const reader = new FileReader()
       reader.onloadend = async () => {
         const base64String = reader.result as string
         form.setValue('id_card_url', base64String)
         setPhotoPreview(base64String)
         
-        // Also attempt real Supabase storage upload in background/parallel
         try {
           const fileExt = file.name.split('.').pop()
           const fileName = `${Date.now()}.${fileExt}`
@@ -117,7 +182,7 @@ export function BookingForm({ initialDate, bookingId, onSuccess }: BookingFormPr
             form.setValue('id_card_url', publicUrl)
           }
         } catch (storageError) {
-          console.warn("Supabase Storage bucket upload skipped or failed, using local base64 fallback: ", storageError)
+          console.warn("Storage upload skipped, using base64 fallback.")
         }
 
         toast.success('Tải ảnh CCCD thành công')
@@ -125,7 +190,6 @@ export function BookingForm({ initialDate, bookingId, onSuccess }: BookingFormPr
       reader.readAsDataURL(file)
     } catch (error: any) {
       toast.error('Lỗi khi tải ảnh: ' + error.message)
-      console.error(error)
     } finally {
       setIsUploading(false)
     }
@@ -140,7 +204,6 @@ export function BookingForm({ initialDate, bookingId, onSuccess }: BookingFormPr
       setVideoStream(stream)
       setShowCamera(true)
       
-      // Allow video element to render first
       setTimeout(() => {
         if (videoRef.current) {
           videoRef.current.srcObject = stream
@@ -148,7 +211,6 @@ export function BookingForm({ initialDate, bookingId, onSuccess }: BookingFormPr
       }, 100)
     } catch (err) {
       toast.error('Không thể mở camera. Vui lòng cấp quyền hoặc tải ảnh lên.')
-      console.error(err)
     }
   }
 
@@ -183,7 +245,6 @@ export function BookingForm({ initialDate, bookingId, onSuccess }: BookingFormPr
     toast.info('Đã gỡ ảnh CCCD')
   }
 
-  // Clean stream on unmount
   useEffect(() => {
     return () => {
       if (videoStream) {
@@ -192,19 +253,132 @@ export function BookingForm({ initialDate, bookingId, onSuccess }: BookingFormPr
     }
   }, [videoStream])
 
+  // Save Booking Submit Handler
   async function onSubmit(data: BookingFormValues) {
     setIsLoading(true)
     try {
-      // In a real implementation, we would call a Server Action here
-      console.log('Submitting:', { ...data, nights, total_price: totalPrice })
-      
-      // Simulate API call
-      await new Promise(resolve => setTimeout(resolve, 1000))
-      
-      toast.success('Lưu booking thành công')
+      // Get current logged-in user
+      const { data: { user } } = await supabase.auth.getUser()
+      if (!user) throw new Error("Chưa đăng nhập! Vui lòng đăng nhập lại.")
+
+      const checkInStr = dayjs(data.check_in).format('YYYY-MM-DD')
+      const checkOutStr = dayjs(data.check_out).format('YYYY-MM-DD')
+
+      if (bookingId) {
+        // --- EDIT EXISTING BOOKING ---
+        // 1. Rollback support: Fetch original booking days
+        const { data: originalDays } = await supabase.from('booking_days').select().eq('booking_id', bookingId)
+        
+        // 2. Remove old days
+        await supabase.from('booking_days').delete().eq('booking_id', bookingId)
+        
+        // 3. Attempt insert new days
+        const daysToInsert = []
+        let current = dayjs(data.check_in)
+        const end = dayjs(data.check_out)
+        while (current.isBefore(end, 'day')) {
+          daysToInsert.push({
+            booking_id: bookingId,
+            apartment_id: data.apartment_id,
+            day: current.format('YYYY-MM-DD'),
+            status: data.status === 'booked' ? 'booked' : 'holding'
+          })
+          current = current.add(1, 'day')
+        }
+
+        const { error: daysError } = await supabase.from('booking_days').insert(daysToInsert)
+        if (daysError) {
+          // Restore original days on duplicate conflict
+          if (originalDays && originalDays.length > 0) {
+            await supabase.from('booking_days').insert(originalDays.map(od => ({
+              booking_id: od.booking_id,
+              apartment_id: od.apartment_id,
+              day: od.day,
+              status: od.status
+            })))
+          }
+          if (daysError.code === '23505') {
+            throw new Error('Trùng lịch! Căn hộ đã có người đặt trong những ngày này.')
+          }
+          throw daysError
+        }
+
+        // 4. Update booking row
+        const { error: bookingError } = await supabase
+          .from('bookings')
+          .update({
+            guest_name: data.guest_name,
+            guest_phone: data.guest_phone,
+            guest_id_card: data.guest_id_card,
+            check_in: checkInStr,
+            check_out: checkOutStr,
+            nights,
+            price_per_night: data.price_per_night,
+            total_price: totalPrice,
+            status: data.status,
+            notes: data.notes,
+            id_card_url: data.id_card_url,
+            apartment_id: data.apartment_id
+          })
+          .eq('id', bookingId)
+
+        if (bookingError) throw bookingError
+        toast.success('Cập nhật booking thành công!')
+
+      } else {
+        // --- INSERT NEW BOOKING ---
+        // 1. Create booking entry
+        const { data: booking, error: bookingError } = await supabase
+          .from('bookings')
+          .insert({
+            apartment_id: data.apartment_id,
+            created_by: user.id,
+            guest_name: data.guest_name,
+            guest_phone: data.guest_phone,
+            guest_id_card: data.guest_id_card,
+            check_in: checkInStr,
+            check_out: checkOutStr,
+            nights,
+            price_per_night: data.price_per_night,
+            total_price: totalPrice,
+            status: data.status,
+            notes: data.notes,
+            id_card_url: data.id_card_url
+          })
+          .select()
+          .single()
+
+        if (bookingError) throw bookingError
+
+        // 2. Create calendar blocking booking_days entries
+        const daysToInsert = []
+        let current = dayjs(data.check_in)
+        const end = dayjs(data.check_out)
+        while (current.isBefore(end, 'day')) {
+          daysToInsert.push({
+            booking_id: booking.id,
+            apartment_id: data.apartment_id,
+            day: current.format('YYYY-MM-DD'),
+            status: data.status === 'booked' ? 'booked' : 'holding'
+          })
+          current = current.add(1, 'day')
+        }
+
+        const { error: daysError } = await supabase.from('booking_days').insert(daysToInsert)
+        if (daysError) {
+          // Delete booking row to maintain integrity if days insert fails
+          await supabase.from('bookings').delete().eq('id', booking.id)
+          if (daysError.code === '23505') {
+            throw new Error('Trùng lịch! Căn hộ đã có người đặt trong những ngày này.')
+          }
+          throw daysError
+        }
+
+        toast.success('Tạo đặt phòng mới thành công!')
+      }
       onSuccess()
-    } catch (error) {
-      toast.error('Lỗi khi lưu booking')
+    } catch (error: any) {
+      toast.error('Lỗi khi lưu booking: ' + error.message)
       console.error(error)
     } finally {
       setIsLoading(false)
@@ -345,6 +519,34 @@ export function BookingForm({ initialDate, bookingId, onSuccess }: BookingFormPr
             </Button>
           </div>
         )}
+
+        {/* Apartment Selection Dropdown */}
+        <FormField
+          control={form.control}
+          name="apartment_id"
+          render={({ field }) => (
+            <FormItem>
+              <FormLabel>Căn hộ đặt chỗ *</FormLabel>
+              <Select 
+                onValueChange={(val) => field.onChange(val || '')} 
+                value={field.value} 
+                disabled={isLoading || apartmentsList.length === 0}
+              >
+                <FormControl>
+                  <SelectTrigger>
+                    <SelectValue placeholder="Chọn căn hộ" />
+                  </SelectTrigger>
+                </FormControl>
+                <SelectContent>
+                  {apartmentsList.map(apt => (
+                    <SelectItem key={apt.id} value={apt.id}>{apt.name}</SelectItem>
+                  ))}
+                </SelectContent>
+              </Select>
+              <FormMessage />
+            </FormItem>
+          )}
+        />
 
         {/* Row 3: Check-in and Check-out */}
         <div className="grid grid-cols-1 md:grid-cols-2 gap-4">

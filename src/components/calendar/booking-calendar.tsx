@@ -1,12 +1,14 @@
 'use client'
 
-import { useState, useCallback } from 'react'
+import { useState, useEffect, useCallback } from 'react'
 import { Calendar, dayjsLocalizer, View, Event } from 'react-big-calendar'
 import dayjs from 'dayjs'
 import 'react-big-calendar/lib/css/react-big-calendar.css'
 import { BOOKING_STATUS, STATUS_COLORS } from '@/lib/constants'
 import { useBookingModal } from '@/stores/app-store'
 import { BookingModal } from '../booking/booking-modal'
+import { createClient } from '@/lib/supabase/client'
+import { toast } from 'sonner'
 
 // Setup the localizer
 const localizer = dayjsLocalizer(dayjs)
@@ -15,33 +17,60 @@ interface BookingEvent extends Event {
   id: string
   status: string
   guestName: string
-  notes?: string
+  notes?: string | null
 }
-
-const mockEvents: BookingEvent[] = [
-  {
-    id: '1',
-    title: 'Nguyễn Văn A',
-    start: new Date(2026, 4, 20), // May 20, 2026
-    end: new Date(2026, 4, 22),
-    status: BOOKING_STATUS.BOOKED,
-    guestName: 'Nguyễn Văn A',
-  },
-  {
-    id: '2',
-    title: 'Trần Thị B',
-    start: new Date(2026, 4, 25),
-    end: new Date(2026, 4, 27),
-    status: BOOKING_STATUS.HOLDING,
-    guestName: 'Trần Thị B',
-  }
-]
 
 export function BookingCalendar() {
   const [date, setDate] = useState(new Date())
   const [view, setView] = useState<View>('month')
-  const [events, setEvents] = useState<BookingEvent[]>(mockEvents) // Will fetch real data later
+  const [events, setEvents] = useState<BookingEvent[]>([])
   const { openNewBookingModal, openEditBookingModal } = useBookingModal()
+  const supabase = createClient()
+
+  // Fetch bookings dynamically from Supabase
+  const fetchBookings = async () => {
+    try {
+      const { data, error } = await supabase
+        .from('bookings')
+        .select('*')
+      
+      if (error) throw error
+      if (data) {
+        setEvents(data.map(b => ({
+          id: b.id,
+          title: `${b.guest_name}`,
+          start: dayjs(b.check_in).toDate(),
+          end: dayjs(b.check_out).toDate(),
+          status: b.status,
+          guestName: b.guest_name,
+          notes: b.notes
+        })))
+      }
+    } catch (err: any) {
+      console.error('Error fetching bookings:', err)
+      toast.error('Lỗi khi tải lịch đặt phòng: ' + err.message)
+    }
+  }
+
+  // Subscribe to real-time changes
+  useEffect(() => {
+    fetchBookings()
+
+    const channel = supabase
+      .channel('calendar-db-changes')
+      .on(
+        'postgres_changes',
+        { event: '*', schema: 'public', table: 'bookings' },
+        () => {
+          fetchBookings()
+        }
+      )
+      .subscribe()
+
+    return () => {
+      supabase.removeChannel(channel)
+    }
+  }, [])
 
   // Manual control functions to fix navigation bugs in Next.js App Router
   const onNavigate = useCallback((newDate: Date) => setDate(newDate), [])
@@ -54,7 +83,7 @@ export function BookingCalendar() {
       style: {
         backgroundColor,
         borderRadius: '4px',
-        opacity: 0.8,
+        opacity: 0.85,
         color: 'white',
         border: '0px',
         display: 'block'
@@ -72,7 +101,7 @@ export function BookingCalendar() {
 
   return (
     <>
-      <div className="h-[600px] w-full bg-white text-black p-4 rounded-md">
+      <div className="h-[600px] w-full bg-white text-black p-4 rounded-md shadow-inner border">
         <Calendar
           localizer={localizer}
           events={events}

@@ -1,6 +1,6 @@
 'use client'
 
-import { useState } from 'react'
+import { useState, useEffect } from 'react'
 import dayjs from 'dayjs'
 import {
   Table,
@@ -13,44 +13,68 @@ import {
 import { Input } from '@/components/ui/input'
 import { Badge } from '@/components/ui/badge'
 import { BOOKING_STATUS } from '@/lib/constants'
-import { Search } from 'lucide-react'
+import { Search, FileText } from 'lucide-react'
 import { Dialog, DialogContent, DialogHeader, DialogTitle } from '@/components/ui/dialog'
 import { BookingForm } from '@/components/booking/booking-form'
+import { createClient } from '@/lib/supabase/client'
 import { toast } from 'sonner'
 
-// Mock data representing realistic bookings
-const initialBookings = [
-  {
-    id: '1',
-    guestName: 'Nguyễn Văn A',
-    guestPhone: '0901234567',
-    checkIn: new Date(2026, 4, 20),
-    checkOut: new Date(2026, 4, 22),
-    status: BOOKING_STATUS.BOOKED,
-    totalPrice: 2000000,
-    guestIdCard: '001202000123',
-    notes: 'Khách VIP, cần chuẩn bị thêm nước lọc và trái cây.',
-    apartmentId: '00000000-0000-0000-0000-000000000000'
-  },
-  {
-    id: '2',
-    guestName: 'Trần Thị B',
-    guestPhone: '0912345678',
-    checkIn: new Date(2026, 4, 25),
-    checkOut: new Date(2026, 4, 27),
-    status: BOOKING_STATUS.HOLDING,
-    totalPrice: 2500000,
-    guestIdCard: '002303001456',
-    notes: 'Yêu cầu phòng tầng cao, view vịnh.',
-    apartmentId: '00000000-0000-0000-0000-000000000000'
-  }
-]
-
 export function BookingList() {
-  const [bookings, setBookings] = useState(initialBookings)
+  const [bookings, setBookings] = useState<any[]>([])
   const [searchTerm, setSearchTerm] = useState('')
   const [isOpen, setIsOpen] = useState(false)
   const [selectedBooking, setSelectedBooking] = useState<any>(null)
+  const supabase = createClient()
+
+  // Fetch bookings dynamically from Supabase
+  const fetchBookings = async () => {
+    try {
+      const { data, error } = await supabase
+        .from('bookings')
+        .select('*')
+        .order('created_at', { ascending: false })
+      
+      if (error) throw error
+      if (data) {
+        setBookings(data.map(b => ({
+          id: b.id,
+          guestName: b.guest_name,
+          guestPhone: b.guest_phone || '',
+          checkIn: dayjs(b.check_in).toDate(),
+          checkOut: dayjs(b.check_out).toDate(),
+          status: b.status,
+          totalPrice: Number(b.total_price),
+          guestIdCard: b.guest_id_card || '',
+          notes: b.notes || '',
+          apartmentId: b.apartment_id,
+          idCardUrl: b.id_card_url || ''
+        })))
+      }
+    } catch (err: any) {
+      console.error('Error fetching bookings:', err)
+      toast.error('Lỗi khi tải danh sách booking: ' + err.message)
+    }
+  }
+
+  // Subscribe to real-time changes
+  useEffect(() => {
+    fetchBookings()
+
+    const channel = supabase
+      .channel('list-db-changes')
+      .on(
+        'postgres_changes',
+        { event: '*', schema: 'public', table: 'bookings' },
+        () => {
+          fetchBookings()
+        }
+      )
+      .subscribe()
+
+    return () => {
+      supabase.removeChannel(channel)
+    }
+  }, [])
 
   const getStatusBadge = (status: string) => {
     switch (status) {
@@ -101,7 +125,8 @@ export function BookingList() {
           <TableBody>
             {filteredBookings.length === 0 ? (
               <TableRow>
-                <TableCell colSpan={5} className="text-center h-24">
+                <TableCell colSpan={5} className="text-center h-24 text-muted-foreground font-medium">
+                  <FileText className="h-8 w-8 mx-auto opacity-30 mb-1" />
                   Không tìm thấy booking nào.
                 </TableCell>
               </TableRow>
@@ -141,7 +166,7 @@ export function BookingList() {
               bookingId={selectedBooking.id}
               onSuccess={() => {
                 setIsOpen(false)
-                toast.success('Cập nhật thông tin đặt phòng thành công!')
+                fetchBookings()
               }}
             />
           )}
