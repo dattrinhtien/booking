@@ -156,20 +156,24 @@ export function BookingList() {
 
       {/* Edit Booking Dialog */}
       <Dialog open={isOpen} onOpenChange={setIsOpen}>
-        <DialogContent className="max-w-lg p-6">
-          <DialogHeader className="mb-4">
-            <DialogTitle className="text-xl font-bold">Chi tiết & Sửa Đặt Phòng</DialogTitle>
-          </DialogHeader>
-          {selectedBooking && (
-            <BookingForm 
-              initialDate={{ start: selectedBooking.checkIn, end: selectedBooking.checkOut }}
-              bookingId={selectedBooking.id}
-              onSuccess={() => {
-                setIsOpen(false)
-                fetchBookings()
-              }}
-            />
-          )}
+        <DialogContent className="sm:max-w-[620px] p-0 max-h-[95vh] sm:max-h-[90vh] overflow-hidden flex flex-col w-[95vw] rounded-xl border shadow-2xl">
+          <div className="p-6 pb-2 border-b">
+            <DialogHeader>
+              <DialogTitle className="text-2xl font-bold text-slate-800 dark:text-zinc-100">Chi tiết & Sửa Đặt Phòng</DialogTitle>
+            </DialogHeader>
+          </div>
+          <div className="flex-1 overflow-y-auto px-6 pb-6 pt-4 max-h-[70vh] scrollbar-thin">
+            {selectedBooking && (
+              <BookingForm 
+                initialDate={{ start: selectedBooking.checkIn, end: selectedBooking.checkOut }}
+                bookingId={selectedBooking.id}
+                onSuccess={() => {
+                  setIsOpen(false)
+                  fetchBookings()
+                }}
+              />
+            )}
+          </div>
         </DialogContent>
       </Dialog>
     </div>

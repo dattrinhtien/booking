@@ -1,9 +1,9 @@
 'use client'
 
-import { useState } from 'react'
-import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card'
+import { useState, useEffect } from 'react'
+import { Card, CardContent } from '@/components/ui/card'
 import { Button } from '@/components/ui/button'
-import { Plus, Users, Mail, UserCheck, ShieldAlert, Edit, Trash2, Ban } from 'lucide-react'
+import { Plus, Users, Mail, UserCheck, ShieldAlert, Edit, Trash2, Ban, Loader2, Key } from 'lucide-react'
 import {
   Table,
   TableBody,
@@ -18,6 +18,13 @@ import { Input } from '@/components/ui/input'
 import { Label } from '@/components/ui/label'
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select'
 import { toast } from 'sonner'
+import {
+  getCollaboratorsAction,
+  createCollaboratorAction,
+  updateCollaboratorAction,
+  toggleCollaboratorStatusAction,
+  deleteCollaboratorAction
+} from '@/app/actions/collaborators'
 
 interface Collaborator {
   id: string
@@ -26,26 +33,50 @@ interface Collaborator {
   active: boolean
 }
 
-const initialCollaborators: Collaborator[] = [
-  { id: '1', name: 'CTV Nguyễn Văn Minh', email: 'collab1@example.com', active: true },
-  { id: '2', name: 'CTV Trần Thị Hạnh', email: 'collab2@example.com', active: false },
-  { id: '3', name: 'CTV Lê Hoàng Nam', email: 'collab3@example.com', active: true },
-]
-
 export default function CollaboratorsPage() {
-  const [collaborators, setCollaborators] = useState<Collaborator[]>(initialCollaborators)
+  const [collaborators, setCollaborators] = useState<Collaborator[]>([])
+  const [loading, setLoading] = useState(true)
+  const [submitting, setSubmitting] = useState(false)
   const [isOpen, setIsOpen] = useState(false)
   const [selectedCollab, setSelectedCollab] = useState<Collaborator | null>(null)
   
   // Form states
   const [name, setName] = useState('')
   const [email, setEmail] = useState('')
+  const [password, setPassword] = useState('')
   const [active, setActive] = useState('true')
+
+  // Fetch collaborators from database on mount
+  const fetchCollaborators = async () => {
+    setLoading(true)
+    try {
+      const res = await getCollaboratorsAction()
+      if (res.success && res.data) {
+        setCollaborators(res.data.map((p: any) => ({
+          id: p.id,
+          name: p.full_name || 'Không tên',
+          email: p.email,
+          active: p.is_active
+        })))
+      } else {
+        toast.error('Lỗi tải CTV: ' + res.error)
+      }
+    } catch (err: any) {
+      toast.error('Lỗi kết nối máy chủ: ' + err.message)
+    } finally {
+      setLoading(false)
+    }
+  }
+
+  useEffect(() => {
+    fetchCollaborators()
+  }, [])
 
   const openAddModal = () => {
     setSelectedCollab(null)
     setName('')
     setEmail('')
+    setPassword('')
     setActive('true')
     setIsOpen(true)
   }
@@ -54,53 +85,94 @@ export default function CollaboratorsPage() {
     setSelectedCollab(collab)
     setName(collab.name)
     setEmail(collab.email)
+    setPassword('') // Don't show password for editing
     setActive(collab.active ? 'true' : 'false')
     setIsOpen(true)
   }
 
-  const handleSave = (e: React.FormEvent) => {
+  const handleSave = async (e: React.FormEvent) => {
     e.preventDefault()
     if (!name || !email) {
       toast.error('Vui lòng điền đầy đủ tên và email của CTV!')
       return
     }
 
-    if (selectedCollab) {
-      // Edit
-      setCollaborators(prev => prev.map(c => c.id === selectedCollab.id 
-        ? { ...c, name, email, active: active === 'true' } 
-        : c
-      ))
-      toast.success(`Cập nhật thông tin CTV "${name}" thành công!`)
-    } else {
-      // Add
-      const newCollab: Collaborator = {
-        id: Date.now().toString(),
-        name,
-        email,
-        active: active === 'true'
+    setSubmitting(true)
+    try {
+      if (selectedCollab) {
+        // Edit existing CTV in Auth and Profile
+        const res = await updateCollaboratorAction(
+          selectedCollab.id,
+          name,
+          email,
+          active === 'true'
+        )
+
+        if (res.success) {
+          toast.success(`Cập nhật CTV "${name}" thành công!`)
+          setIsOpen(false)
+          fetchCollaborators()
+        } else {
+          toast.error('Cập nhật thất bại: ' + res.error)
+        }
+      } else {
+        // Create new CTV in Auth and Profile
+        const res = await createCollaboratorAction(
+          name,
+          email,
+          active === 'true',
+          password || 'Halong@2026'
+        )
+
+        if (res.success) {
+          toast.success(`Đã tạo tài khoản cho CTV "${name}" thành công!`)
+          setIsOpen(false)
+          fetchCollaborators()
+        } else {
+          toast.error('Tạo tài khoản thất bại: ' + res.error)
+        }
       }
-      setCollaborators(prev => [...prev, newCollab])
-      toast.success(`Đã thêm Cộng tác viên "${name}" thành công!`)
+    } catch (err: any) {
+      toast.error('Lỗi khi lưu dữ liệu: ' + err.message)
+    } finally {
+      setSubmitting(false)
     }
-    setIsOpen(false)
   }
 
-  const handleDelete = (id: string, name: string) => {
-    setCollaborators(prev => prev.filter(c => c.id !== id))
-    toast.success(`Đã xóa Cộng tác viên "${name}" khỏi hệ thống!`)
+  const handleDelete = async (id: string, name: string) => {
+    if (!confirm(`Bạn có chắc chắn muốn xóa vĩnh viễn tài khoản CTV "${name}" khỏi hệ thống?`)) {
+      return
+    }
+
+    try {
+      const res = await deleteCollaboratorAction(id)
+      if (res.success) {
+        toast.success(`Đã xóa Cộng tác viên "${name}" khỏi hệ thống!`)
+        fetchCollaborators()
+      } else {
+        toast.error('Xóa CTV thất bại: ' + res.error)
+      }
+    } catch (err: any) {
+      toast.error('Lỗi khi xóa CTV: ' + err.message)
+    }
   }
 
-  const toggleStatus = (collab: Collaborator) => {
+  const toggleStatus = async (collab: Collaborator) => {
     const nextStatus = !collab.active
-    setCollaborators(prev => prev.map(c => c.id === collab.id 
-      ? { ...c, active: nextStatus } 
-      : c
-    ))
-    if (nextStatus) {
-      toast.success(`Đã kích hoạt tài khoản của "${collab.name}"!`)
-    } else {
-      toast.warning(`Đã tạm khóa tài khoản của "${collab.name}"!`)
+    try {
+      const res = await toggleCollaboratorStatusAction(collab.id, nextStatus)
+      if (res.success) {
+        if (nextStatus) {
+          toast.success(`Đã mở khóa tài khoản của "${collab.name}"!`)
+        } else {
+          toast.warning(`Đã tạm khóa tài khoản của "${collab.name}"!`)
+        }
+        fetchCollaborators()
+      } else {
+        toast.error('Thay đổi trạng thái thất bại: ' + res.error)
+      }
+    } catch (err: any) {
+      toast.error('Lỗi khi đổi trạng thái: ' + err.message)
     }
   }
 
@@ -129,7 +201,14 @@ export default function CollaboratorsPage() {
               </TableRow>
             </TableHeader>
             <TableBody>
-              {collaborators.length === 0 ? (
+              {loading ? (
+                <TableRow>
+                  <TableCell colSpan={4} className="text-center py-12 text-muted-foreground">
+                    <Loader2 className="h-8 w-8 mx-auto animate-spin mb-2 text-sky-500" />
+                    Đang tải danh sách cộng tác viên...
+                  </TableCell>
+                </TableRow>
+              ) : collaborators.length === 0 ? (
                 <TableRow>
                   <TableCell colSpan={4} className="text-center py-12 text-muted-foreground">
                     <Users className="h-10 w-10 mx-auto opacity-35 mb-2" />
@@ -212,6 +291,7 @@ export default function CollaboratorsPage() {
                 placeholder="Ví dụ: Nguyễn Văn A"
                 value={name}
                 onChange={e => setName(e.target.value)}
+                disabled={submitting}
               />
             </div>
             
@@ -223,14 +303,37 @@ export default function CollaboratorsPage() {
                 placeholder="email@example.com"
                 value={email}
                 onChange={e => setEmail(e.target.value)}
+                disabled={submitting}
               />
             </div>
 
+            {/* Password Field: ONLY show for creating new CTV */}
+            {!selectedCollab && (
+              <div className="space-y-1.5">
+                <div className="flex items-center justify-between">
+                  <Label htmlFor="password">Mật khẩu đăng nhập</Label>
+                  <span className="text-[10px] text-muted-foreground flex items-center gap-0.5">
+                    <Key className="h-3 w-3" /> Mặc định: Halong@2026
+                  </span>
+                </div>
+                <Input
+                  id="password"
+                  type="password"
+                  placeholder="Để trống dùng mật khẩu mặc định"
+                  value={password}
+                  onChange={e => setPassword(e.target.value)}
+                  disabled={submitting}
+                />
+              </div>
+            )}
+
             <div className="space-y-1.5">
               <Label htmlFor="status">Trạng thái hoạt động</Label>
-              <Select value={active} onValueChange={(val) => setActive(val || 'true')}>
+              <Select value={active} onValueChange={(val) => setActive(val || 'true')} disabled={submitting}>
                 <SelectTrigger>
-                  <SelectValue placeholder="Chọn trạng thái" />
+                  <span className="text-sm font-medium">
+                    {active === 'true' ? "Hoạt động (Được truy cập)" : "Tạm khóa (Ngừng truy cập)"}
+                  </span>
                 </SelectTrigger>
                 <SelectContent>
                   <SelectItem value="true">Hoạt động (Được truy cập)</SelectItem>
@@ -240,11 +343,18 @@ export default function CollaboratorsPage() {
             </div>
 
             <DialogFooter className="pt-4 border-t gap-2">
-              <Button type="button" variant="outline" onClick={() => setIsOpen(false)}>
+              <Button type="button" variant="outline" onClick={() => setIsOpen(false)} disabled={submitting}>
                 Hủy
               </Button>
-              <Button type="submit" className="bg-sky-600 hover:bg-sky-700">
-                {selectedCollab ? 'Lưu thay đổi' : 'Tạo mới'}
+              <Button type="submit" className="bg-sky-600 hover:bg-sky-700" disabled={submitting}>
+                {submitting ? (
+                  <>
+                    <Loader2 className="h-4 w-4 animate-spin mr-1.5" />
+                    Đang lưu...
+                  </>
+                ) : (
+                  selectedCollab ? 'Lưu thay đổi' : 'Tạo mới & Kích hoạt'
+                )}
               </Button>
             </DialogFooter>
           </form>

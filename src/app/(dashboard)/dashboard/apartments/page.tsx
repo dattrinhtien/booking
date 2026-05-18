@@ -1,13 +1,14 @@
 'use client'
 
-import { useState } from 'react'
+import { useState, useEffect } from 'react'
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card'
 import { Button } from '@/components/ui/button'
-import { Plus, Building2, MapPin, Users, DollarSign, Edit, Trash2 } from 'lucide-react'
+import { Plus, Building2, MapPin, Users, DollarSign, Edit, Trash2, Loader2, Info } from 'lucide-react'
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogFooter } from '@/components/ui/dialog'
 import { Input } from '@/components/ui/input'
 import { Label } from '@/components/ui/label'
 import { toast } from 'sonner'
+import { createClient } from '@/lib/supabase/client'
 
 interface Apartment {
   id: string
@@ -15,35 +16,55 @@ interface Apartment {
   address: string
   maxGuests: number
   basePrice: number
+  description?: string
 }
 
-const initialApartments: Apartment[] = [
-  {
-    id: '1',
-    name: 'Căn hộ Mẫu 01',
-    address: '123 Đường Bao Biển, Hạ Long',
-    maxGuests: 4,
-    basePrice: 1000000,
-  },
-  {
-    id: '2',
-    name: 'Căn hộ Mẫu 02',
-    address: '456 Bến Đoan, Hồng Gai, Hạ Long',
-    maxGuests: 6,
-    basePrice: 1500000,
-  }
-]
-
 export default function ApartmentsPage() {
-  const [apartments, setApartments] = useState<Apartment[]>(initialApartments)
+  const [apartments, setApartments] = useState<Apartment[]>([])
+  const [loading, setLoading] = useState(true)
+  const [submitting, setSubmitting] = useState(false)
   const [isOpen, setIsOpen] = useState(false)
   const [selectedApartment, setSelectedApartment] = useState<Apartment | null>(null)
+  const supabase = createClient()
   
   // Form states
   const [name, setName] = useState('')
   const [address, setAddress] = useState('')
   const [maxGuests, setMaxGuests] = useState(4)
   const [basePrice, setBasePrice] = useState(1000000)
+  const [description, setDescription] = useState('')
+
+  // Fetch apartments from Supabase
+  const fetchApartments = async () => {
+    setLoading(true)
+    try {
+      const { data, error } = await supabase
+        .from('apartments')
+        .select('*')
+        .order('created_at', { ascending: false })
+
+      if (error) throw error
+      if (data) {
+        setApartments(data.map(apt => ({
+          id: apt.id,
+          name: apt.name,
+          address: apt.address || '',
+          maxGuests: apt.max_guests,
+          basePrice: Number(apt.base_price),
+          description: apt.description || ''
+        })))
+      }
+    } catch (err: any) {
+      console.error(err)
+      toast.error('Lỗi khi tải căn hộ: ' + err.message)
+    } finally {
+      setLoading(false)
+    }
+  }
+
+  useEffect(() => {
+    fetchApartments()
+  }, [])
 
   const openAddModal = () => {
     setSelectedApartment(null)
@@ -51,6 +72,7 @@ export default function ApartmentsPage() {
     setAddress('')
     setMaxGuests(4)
     setBasePrice(1000000)
+    setDescription('')
     setIsOpen(true)
   }
 
@@ -60,41 +82,77 @@ export default function ApartmentsPage() {
     setAddress(apartment.address)
     setMaxGuests(apartment.maxGuests)
     setBasePrice(apartment.basePrice)
+    setDescription(apartment.description || '')
     setIsOpen(true)
   }
 
-  const handleSave = (e: React.FormEvent) => {
+  const handleSave = async (e: React.FormEvent) => {
     e.preventDefault()
     if (!name || !address) {
       toast.error('Vui lòng điền đầy đủ tên và địa chỉ căn hộ!')
       return
     }
 
-    if (selectedApartment) {
-      // Edit existing
-      setApartments(prev => prev.map(a => a.id === selectedApartment.id 
-        ? { ...a, name, address, maxGuests, basePrice } 
-        : a
-      ))
-      toast.success(`Cập nhật căn hộ "${name}" thành công!`)
-    } else {
-      // Add new
-      const newApartment: Apartment = {
-        id: Date.now().toString(),
-        name,
-        address,
-        maxGuests,
-        basePrice
+    setSubmitting(true)
+    try {
+      if (selectedApartment) {
+        // Edit existing in Supabase
+        const { error } = await supabase
+          .from('apartments')
+          .update({
+            name,
+            address,
+            max_guests: maxGuests,
+            base_price: basePrice,
+            description
+          })
+          .eq('id', selectedApartment.id)
+
+        if (error) throw error
+        toast.success(`Cập nhật căn hộ "${name}" thành công!`)
+      } else {
+        // Add new in Supabase
+        const { error } = await supabase
+          .from('apartments')
+          .insert({
+            name,
+            address,
+            max_guests: maxGuests,
+            base_price: basePrice,
+            description
+          })
+
+        if (error) throw error
+        toast.success(`Thêm căn hộ "${name}" thành công!`)
       }
-      setApartments(prev => [...prev, newApartment])
-      toast.success(`Thêm căn hộ "${name}" thành công!`)
+      setIsOpen(false)
+      fetchApartments()
+    } catch (err: any) {
+      console.error(err)
+      toast.error('Lỗi khi lưu dữ liệu: ' + err.message)
+    } finally {
+      setSubmitting(false)
     }
-    setIsOpen(false)
   }
 
-  const handleDelete = (id: string, name: string) => {
-    setApartments(prev => prev.filter(a => a.id !== id))
-    toast.success(`Đã xóa căn hộ "${name}" thành công!`)
+  const handleDelete = async (id: string, name: string) => {
+    if (!confirm(`Bạn có chắc chắn muốn xóa căn hộ "${name}"? Việc này có thể ảnh hưởng đến các booking liên quan.`)) {
+      return
+    }
+
+    try {
+      const { error } = await supabase
+        .from('apartments')
+        .delete()
+        .eq('id', id)
+
+      if (error) throw error
+      toast.success(`Đã xóa căn hộ "${name}" thành công!`)
+      fetchApartments()
+    } catch (err: any) {
+      console.error(err)
+      toast.error('Lỗi khi xóa căn hộ: ' + err.message + ' (Lưu ý: Không thể xóa căn hộ đã có lịch booking trong lịch sử!)')
+    }
   }
 
   return (
@@ -109,7 +167,12 @@ export default function ApartmentsPage() {
         </Button>
       </div>
 
-      {apartments.length === 0 ? (
+      {loading ? (
+        <div className="flex flex-col items-center justify-center p-24 text-muted-foreground">
+          <Loader2 className="h-10 w-10 animate-spin text-sky-500 mb-3" />
+          <span>Đang tải danh sách căn hộ từ cơ sở dữ liệu...</span>
+        </div>
+      ) : apartments.length === 0 ? (
         <div className="flex flex-col items-center justify-center p-12 border border-dashed rounded-lg bg-slate-50 dark:bg-zinc-900/50">
           <Building2 className="h-12 w-12 text-muted-foreground mb-4 opacity-50" />
           <h3 className="text-lg font-semibold text-slate-800 dark:text-zinc-200">Không có căn hộ nào</h3>
@@ -145,6 +208,12 @@ export default function ApartmentsPage() {
                       </span>
                     </span>
                   </p>
+                  {apartment.description && (
+                    <p className="flex items-start gap-2 pt-1 border-t text-xs text-muted-foreground">
+                      <Info className="h-3.5 w-3.5 mt-0.5 shrink-0" />
+                      <span>{apartment.description}</span>
+                    </p>
+                  )}
                 </div>
                 
                 <div className="pt-3 border-t flex gap-2 justify-end">
@@ -187,6 +256,7 @@ export default function ApartmentsPage() {
                 placeholder="Ví dụ: Căn hộ Mẫu 03"
                 value={name}
                 onChange={e => setName(e.target.value)}
+                disabled={submitting}
               />
             </div>
             
@@ -197,6 +267,7 @@ export default function ApartmentsPage() {
                 placeholder="Ví dụ: Tòa A, Chung cư Sapphire, Hạ Long"
                 value={address}
                 onChange={e => setAddress(e.target.value)}
+                disabled={submitting}
               />
             </div>
 
@@ -209,6 +280,7 @@ export default function ApartmentsPage() {
                   min={1}
                   value={maxGuests}
                   onChange={e => setMaxGuests(parseInt(e.target.value) || 1)}
+                  disabled={submitting}
                 />
               </div>
               <div className="space-y-1.5">
@@ -219,16 +291,35 @@ export default function ApartmentsPage() {
                   min={0}
                   value={basePrice}
                   onChange={e => setBasePrice(parseFloat(e.target.value) || 0)}
+                  disabled={submitting}
                 />
               </div>
             </div>
 
+            <div className="space-y-1.5">
+              <Label htmlFor="description">Mô tả thêm</Label>
+              <Input
+                id="description"
+                placeholder="Tiện ích, view, v.v..."
+                value={description}
+                onChange={e => setDescription(e.target.value)}
+                disabled={submitting}
+              />
+            </div>
+
             <DialogFooter className="pt-4 border-t gap-2">
-              <Button type="button" variant="outline" onClick={() => setIsOpen(false)}>
+              <Button type="button" variant="outline" onClick={() => setIsOpen(false)} disabled={submitting}>
                 Hủy
               </Button>
-              <Button type="submit" className="bg-sky-600 hover:bg-sky-700">
-                {selectedApartment ? 'Lưu thay đổi' : 'Tạo mới'}
+              <Button type="submit" className="bg-sky-600 hover:bg-sky-700" disabled={submitting}>
+                {submitting ? (
+                  <>
+                    <Loader2 className="h-4 w-4 animate-spin mr-1.5" />
+                    Đang lưu...
+                  </>
+                ) : (
+                  selectedApartment ? 'Lưu thay đổi' : 'Tạo mới'
+                )}
               </Button>
             </DialogFooter>
           </form>

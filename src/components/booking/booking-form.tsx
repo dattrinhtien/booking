@@ -533,8 +533,10 @@ export function BookingForm({ initialDate, bookingId, onSuccess }: BookingFormPr
                 disabled={isLoading || apartmentsList.length === 0}
               >
                 <FormControl>
-                  <SelectTrigger>
-                    <SelectValue placeholder="Chọn căn hộ" />
+                  <SelectTrigger className="w-full">
+                    <span className="text-sm font-medium">
+                      {apartmentsList.find(apt => apt.id === field.value)?.name || "Chọn căn hộ"}
+                    </span>
                   </SelectTrigger>
                 </FormControl>
                 <SelectContent>
@@ -666,8 +668,10 @@ export function BookingForm({ initialDate, bookingId, onSuccess }: BookingFormPr
                 <FormLabel>Trạng thái *</FormLabel>
                 <Select onValueChange={field.onChange} defaultValue={field.value} disabled={isLoading}>
                   <FormControl>
-                    <SelectTrigger>
-                      <SelectValue placeholder="Chọn trạng thái" />
+                    <SelectTrigger className="w-full">
+                      <span className="text-sm font-medium">
+                        {field.value === BOOKING_STATUS.BOOKED ? "Đã cọc/Thanh toán" : "Giữ phòng"}
+                      </span>
                     </SelectTrigger>
                   </FormControl>
                   <SelectContent>
