@@ -14,9 +14,12 @@ import { Input } from '@/components/ui/input'
 import { Badge } from '@/components/ui/badge'
 import { BOOKING_STATUS } from '@/lib/constants'
 import { Search } from 'lucide-react'
+import { Dialog, DialogContent, DialogHeader, DialogTitle } from '@/components/ui/dialog'
+import { BookingForm } from '@/components/booking/booking-form'
+import { toast } from 'sonner'
 
-// Mock data
-const bookings = [
+// Mock data representing realistic bookings
+const initialBookings = [
   {
     id: '1',
     guestName: 'Nguyễn Văn A',
@@ -25,6 +28,9 @@ const bookings = [
     checkOut: new Date(2026, 4, 22),
     status: BOOKING_STATUS.BOOKED,
     totalPrice: 2000000,
+    guestIdCard: '001202000123',
+    notes: 'Khách VIP, cần chuẩn bị thêm nước lọc và trái cây.',
+    apartmentId: '00000000-0000-0000-0000-000000000000'
   },
   {
     id: '2',
@@ -34,11 +40,17 @@ const bookings = [
     checkOut: new Date(2026, 4, 27),
     status: BOOKING_STATUS.HOLDING,
     totalPrice: 2500000,
+    guestIdCard: '002303001456',
+    notes: 'Yêu cầu phòng tầng cao, view vịnh.',
+    apartmentId: '00000000-0000-0000-0000-000000000000'
   }
 ]
 
 export function BookingList() {
+  const [bookings, setBookings] = useState(initialBookings)
   const [searchTerm, setSearchTerm] = useState('')
+  const [isOpen, setIsOpen] = useState(false)
+  const [selectedBooking, setSelectedBooking] = useState<any>(null)
 
   const getStatusBadge = (status: string) => {
     switch (status) {
@@ -55,6 +67,11 @@ export function BookingList() {
     b.guestName.toLowerCase().includes(searchTerm.toLowerCase()) || 
     b.guestPhone.includes(searchTerm)
   )
+
+  const handleRowClick = (booking: any) => {
+    setSelectedBooking(booking)
+    setIsOpen(true)
+  }
 
   return (
     <div className="space-y-4">
@@ -90,15 +107,19 @@ export function BookingList() {
               </TableRow>
             ) : (
               filteredBookings.map((booking) => (
-                <TableRow key={booking.id} className="cursor-pointer hover:bg-muted/50">
+                <TableRow 
+                  key={booking.id} 
+                  className="cursor-pointer hover:bg-muted/50 transition-colors"
+                  onClick={() => handleRowClick(booking)}
+                >
                   <TableCell>
-                    <div className="font-medium">{booking.guestName}</div>
-                    <div className="text-sm text-muted-foreground">{booking.guestPhone}</div>
+                    <div className="font-semibold text-slate-800 dark:text-zinc-200">{booking.guestName}</div>
+                    <div className="text-xs text-muted-foreground">{booking.guestPhone}</div>
                   </TableCell>
-                  <TableCell>{dayjs(booking.checkIn).format('DD/MM/YYYY')}</TableCell>
-                  <TableCell>{dayjs(booking.checkOut).format('DD/MM/YYYY')}</TableCell>
+                  <TableCell className="font-medium">{dayjs(booking.checkIn).format('DD/MM/YYYY')}</TableCell>
+                  <TableCell className="font-medium">{dayjs(booking.checkOut).format('DD/MM/YYYY')}</TableCell>
                   <TableCell>{getStatusBadge(booking.status)}</TableCell>
-                  <TableCell className="text-right font-medium">
+                  <TableCell className="text-right font-bold text-sky-600 dark:text-sky-400">
                     {new Intl.NumberFormat('vi-VN').format(booking.totalPrice)} đ
                   </TableCell>
                 </TableRow>
@@ -107,6 +128,25 @@ export function BookingList() {
           </TableBody>
         </Table>
       </div>
+
+      {/* Edit Booking Dialog */}
+      <Dialog open={isOpen} onOpenChange={setIsOpen}>
+        <DialogContent className="max-w-lg p-6">
+          <DialogHeader className="mb-4">
+            <DialogTitle className="text-xl font-bold">Chi tiết & Sửa Đặt Phòng</DialogTitle>
+          </DialogHeader>
+          {selectedBooking && (
+            <BookingForm 
+              initialDate={{ start: selectedBooking.checkIn, end: selectedBooking.checkOut }}
+              bookingId={selectedBooking.id}
+              onSuccess={() => {
+                setIsOpen(false)
+                toast.success('Cập nhật thông tin đặt phòng thành công!')
+              }}
+            />
+          )}
+        </DialogContent>
+      </Dialog>
     </div>
   )
 }
