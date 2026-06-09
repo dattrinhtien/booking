@@ -31,6 +31,17 @@ import { Popover, PopoverContent, PopoverTrigger } from '@/components/ui/popover
 import { Calendar } from '@/components/ui/calendar'
 import { CalendarIcon, Camera, Upload, Trash2, Loader2 } from 'lucide-react'
 import { cn } from '@/lib/utils'
+import {
+  AlertDialog,
+  AlertDialogAction,
+  AlertDialogCancel,
+  AlertDialogContent,
+  AlertDialogDescription,
+  AlertDialogFooter,
+  AlertDialogHeader,
+  AlertDialogTitle,
+  AlertDialogTrigger,
+} from '@/components/ui/alert-dialog'
 
 interface BookingFormProps {
   initialDate: { start: Date; end: Date } | null;
@@ -50,7 +61,41 @@ export function BookingForm({ initialDate, bookingId, onSuccess }: BookingFormPr
   const videoRef = useRef<HTMLVideoElement>(null)
   const fileInputRef = useRef<HTMLInputElement>(null)
 
+  // Delete confirm state
+  const [showDeleteConfirm, setShowDeleteConfirm] = useState(false)
+
   const supabase = createClient()
+
+  const handleDelete = async () => {
+    if (!bookingId) return
+    setIsLoading(true)
+    try {
+      // 1. Delete associated days in booking_days
+      const { error: daysError } = await supabase
+        .from('booking_days')
+        .delete()
+        .eq('booking_id', bookingId)
+
+      if (daysError) throw daysError
+
+      // 2. Delete the booking itself
+      const { error: bookingError } = await supabase
+        .from('bookings')
+        .delete()
+        .eq('id', bookingId)
+
+      if (bookingError) throw bookingError
+
+      toast.success('Xóa booking thành công!')
+      setShowDeleteConfirm(false)
+      onSuccess()
+    } catch (error: any) {
+      toast.error('Lỗi khi xóa booking: ' + error.message)
+      console.error(error)
+    } finally {
+      setIsLoading(false)
+    }
+  }
 
   const form = useForm<BookingFormValues>({
     resolver: zodResolver(bookingSchema),
@@ -705,13 +750,43 @@ export function BookingForm({ initialDate, bookingId, onSuccess }: BookingFormPr
           )}
         />
 
-        <div className="flex justify-end gap-x-2 pt-4 border-t">
-          <Button type="button" variant="outline" onClick={onSuccess} disabled={isLoading}>
-            Hủy
-          </Button>
-          <Button type="submit" disabled={isLoading}>
-            {isLoading ? 'Đang lưu...' : 'Lưu Booking'}
-          </Button>
+        <div className="flex justify-between items-center pt-4 border-t">
+          <div>
+            {bookingId && (
+              <AlertDialog open={showDeleteConfirm} onOpenChange={setShowDeleteConfirm}>
+                <AlertDialogTrigger render={<Button type="button" variant="destructive" disabled={isLoading} />}>
+                  <Trash2 className="h-4 w-4 mr-2" />
+                  Xóa Booking
+                </AlertDialogTrigger>
+                <AlertDialogContent>
+                  <AlertDialogHeader>
+                    <AlertDialogTitle>Xác nhận xóa booking</AlertDialogTitle>
+                    <AlertDialogDescription>
+                      Bạn có chắc chắn muốn xóa booking này? Thao tác này sẽ giải phóng lịch đặt phòng và không thể hoàn tác.
+                    </AlertDialogDescription>
+                  </AlertDialogHeader>
+                  <AlertDialogFooter>
+                    <AlertDialogCancel>Hủy</AlertDialogCancel>
+                    <Button
+                      onClick={handleDelete}
+                      variant="destructive"
+                      disabled={isLoading}
+                    >
+                      {isLoading ? 'Đang xóa...' : 'Xóa'}
+                    </Button>
+                  </AlertDialogFooter>
+                </AlertDialogContent>
+              </AlertDialog>
+            )}
+          </div>
+          <div className="flex gap-x-2">
+            <Button type="button" variant="outline" onClick={onSuccess} disabled={isLoading}>
+              Hủy
+            </Button>
+            <Button type="submit" disabled={isLoading}>
+              {isLoading ? 'Đang lưu...' : 'Lưu Booking'}
+            </Button>
+          </div>
         </div>
       </form>
     </Form>

@@ -40,7 +40,11 @@ const routes = [
   },
 ]
 
-export function Sidebar() {
+interface SidebarProps {
+  onClose?: () => void
+}
+
+export function Sidebar({ onClose }: SidebarProps) {
   const pathname = usePathname()
   const supabase = createClient()
 
@@ -52,7 +56,7 @@ export function Sidebar() {
   return (
     <div className="space-y-4 py-4 flex flex-col h-full bg-slate-900 text-white">
       <div className="px-3 py-2 flex-1">
-        <Link href="/dashboard" className="flex items-center pl-3 mb-14">
+        <Link href="/dashboard" onClick={onClose} className="flex items-center pl-3 mb-14">
           <LayoutDashboard className="h-8 w-8 text-sky-500 mr-2" />
           <h1 className="text-2xl font-bold">{APP_NAME}</h1>
         </Link>
@@ -61,6 +65,7 @@ export function Sidebar() {
             <Link
               key={route.href}
               href={route.href}
+              onClick={onClose}
               className={cn(
                 'text-sm group flex p-3 w-full justify-start font-medium cursor-pointer hover:text-white hover:bg-white/10 rounded-lg transition',
                 pathname === route.href ? 'text-white bg-white/10' : 'text-zinc-400'
